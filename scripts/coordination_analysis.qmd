@@ -1,0 +1,512 @@
+---
+title: Vocal coordination analysis
+subtitle: Waterrail vocal coordination
+author: <center><font size="4"><a href="https://marce10.github.io/">Marcelo Araya-Salas, PhD</a>
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 4
+toc-location: left
+number-sections: true
+highlight-style: pygments
+format:
+  html:
+    df-print: kable
+    code-fold: true
+    code-tools: true
+    css: qmd.css
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r set root directory, echo = FALSE}
+
+# set working directory 
+knitr::opts_knit$set(root.dir =  "..")
+
+```
+
+```{r add link to github repo, echo = FALSE, results='asis'}
+
+# print link to github repo if any
+if (file.exists("./.git/config")){
+  config <- readLines("./.git/config")
+  url <- grep("url",  config, value = TRUE)
+  url <- gsub("\\turl = |.git$", "", url)
+  if (length(url) > 0)
+    cat("\nSource code and data found at [", url, "](", url, ")", sep = "")
+  }
+
+```
+
+```{r setup style, echo = FALSE, message = FALSE, warning=FALSE}
+
+# options to customize chunk outputs
+knitr::opts_chunk$set(
+  message = FALSE
+ )
+
+```
+
+
+<!-- skyblue box -->
+
+::: {.alert .alert-info}
+
+# Purpose {.unnumbered .unlisted}
+
+- Test if waterrail pairs coordinate their calls
+
+:::
+
+# Analysis flowchart {.unnumbered .unlisted}
+```{mermaid, fig.align = "center"}
+flowchart LR
+  A[Read data] --> B(Format data) 
+  B --> C(Simulate random IDs)
+  C --> D(Run coordination)
+  D --> E(Check coordination scores) 
+
+style A fill:#44015466
+style B fill:#3E4A894D
+style C fill:#26828E4D
+style D fill:#6DCD594D
+
+```
+
+# Load packages {.unnumbered .unlisted}
+
+```{r load packages}
+
+# knitr is require for creating html/pdf/word reports
+# formatR is used for soft-wrapping code
+
+# install/ load packages
+sketchy::load_packages(
+  packages = c("warbleR", "pbapply", "readxl", "ggplot2", "gghalves", "formatR", "cowplot")
+)
+
+# custom function based on gghalves::geom_half_point
+geom_half_point <- function(
+  mapping = NULL,
+  data = NULL,
+  side = "l",
+  range_scale = 0.4,
+  alpha = 1,
+  pch = 16,
+  size = 1.5,
+  transformation = NULL,   # <- absorb but ignore
+  ...
+) {
+
+  ggplot2::geom_point(
+    mapping = mapping,
+    data = data,
+    alpha = alpha,
+    shape = pch,
+    size = size,
+    position = position_half_jitter(
+      width = 0.1,
+      height = 0,
+      side = side,
+      range_scale = range_scale
+    ),
+    ...
+  )
+}
+
+position_half_jitter <- function(width = 0.1,
+                                 height = 0,
+                                 side = "l",
+                                 range_scale = 0.4) {
+
+  ggplot2::ggproto(
+    NULL, ggplot2::Position,
+
+    compute_panel = function(self, data, params, scales) {
+
+      # apply regular jitter first
+      data$x <- data$x + stats::runif(
+        nrow(data),
+        -width / 2,
+        width / 2
+      )
+
+      # shift to one side
+      shift <- if (side %in% c("l", "left")) {
+        -range_scale / 2
+      } else {
+        range_scale / 2
+      }
+
+      data$x <- data$x + shift
+
+      data
+    }
+  )
+}
+
+source("./scripts/test_coordination_impute.R")
+source("~/Dropbox/R_package_testing/warbleR/R/internal_functions.R")
+```
+
+# Read and format data
+```{r, eval = TRUE}
+
+dat <-readxl::read_excel("./data/raw/Water_rail.xlsx")
+dat <-readxl::read_excel("./data/raw/Water rail database v4.xlsx")
+dat <- as.data.frame(dat)
+dat$sing.event <- paste(dat$No., dat$`Before dawn (0), after dawn (1)`, sep = "-")
+dat$start <- as.numeric(dat$`Call series begin time (s)`)
+dat$end <- as.numeric(dat$`Call series end time (s)`)
+dat$overlp <- ifelse(dat$`Overlapping series (no-0/yes-1)` == 0, NA, 1)
+
+dat$indiv <- NA
+
+# set those that overlap (overlapping series come in consecutive pairs)
+dat$indiv[!is.na(dat$overlp)] <- rep(c("a", "b"), sum(!is.na(dat$overlp)) / 2)
+
+# non-overlapping series are left as NA so test_coordination_impute() assigns them using 'prob'
+
+```
+
+# Explore data
+
+Here we print 5 of the singing events to visualize the coordination of calls. The `plot_coordination()` function from the `warbleR` package is used to create a plot of the vocal events, showing their timing and overlap.
+
+```{r}
+
+# random assignment of non-overlapping series only for plotting
+dat_plot <- dat
+dat_plot$indiv[is.na(dat_plot$indiv)] <- c("a", "b")[rbinom(sum(is.na(dat_plot$indiv)), 1, 0.5) + 1]
+
+agg_ind <- aggregate(indiv ~ sing.event, dat_plot, function(x) length(unique(x)))
+
+dat2 <- dat_plot[dat_plot$sing.event %in% agg_ind$sing.event[agg_ind$indiv == 2],]
+
+a <- warbleR::plot_coordination(dat2, img = FALSE, ovlp = TRUE, only.coor = FALSE)
+
+print(a[1:5])
+```
+
+
+# Random assigning of IDs to test coordination
+
+The routine below: 
+
+* Assigns different IDs to the vocal events that overlap (i.e. those that are coordinated)
+* Assigns random IDs to the vocal events that do not overlap and assigns
+* An unlabelled signal that overlaps nothing gets its own independent binomial draw. Filling in all missing IDs this way is repeated 100 times, giving a set of complete datasets that reflect the uncertainty about who produced the unlabelled signals. * Each imputed dataset is then treated as one observed dataset and randomized 1000 times while keeping its imputed labels. Its observed coordination statistic is compared only with its own null distribution. 
+* Finally, the observed values, expected values, coordination scores and p-values are averaged across imputations. The averaged p-value equals the proportion of all randomized datasets, pooled across imputations, that are at least as extreme as their own imputed observed data. 
+
+To quantify coordination we use a modified version of the coordination score (sensu Araya-Salas et al. 2017) calculated as:
+
+$$
+\text{bounded score} =
+\frac{\text{obs} - \text{mean.random}}
+{\text{obs} + \text{mean.random}}
+$$
+
+For overlap counts, positive values indicate a tendency to overlap while negative values indicate a tendency to alternate. For time lapse (mean time to the closest call from the other individual), negative values indicate that individuals call closer in time than expected by chance. NA values will be returned when events cannot be randomized (e.g. too few signals).
+
+Each singing event is one 2-h window (before or after dawn) of a pair. For each assignment probability, `test_coordination_impute()` creates 100 imputed data sets per window and each one is compared against 1000 randomizations. The coordination scores of every imputation are kept (`attr(x, "imputation.results")`) to show the spread across plausible ID assignments.
+
+
+## Time lapse among vocal units
+
+
+```{r}
+#| eval: false
+
+# probabilities controling the proportion of calls for the 2
+# individuals
+probs <- seq(0.1, 0.5, by = 0.05)
+
+# set global options (this can also be set within the function
+# call)
+warbleR_options(iterations = 1000, pb = FALSE, ovlp.method = "time.closest")
+
+# run over different probability values ('prob' is the probability of
+# assigning a non-overlapping series to individual 'a')
+out <- lapply(probs, function(x) {
+
+    res <- test_coordination_impute(X = dat[, c("sing.event", "indiv", "start", "end")],
+        prob = x, id = "a", imputations = 100, parallel = 20, seed = 123)
+
+    # keep results of each imputation
+    return(attr(res, "imputation.results"))
+})
+
+
+saveRDS(out, "./data/processed/coordination_scores_by_id_proportion_time_lapse.RDS")
+
+```
+
+```{r}
+coor_scores_list <- readRDS("./data/processed/coordination_scores_by_id_proportion_time_lapse.RDS")
+
+# probabilities controling the proportion of calls for the 2 individuals
+probs <- seq(0.1, 0.5, by = 0.05)
+
+coor_scores_list <- lapply(seq_along(coor_scores_list), function(x) {
+    X <- coor_scores_list[[x]]
+    X <- X[!is.na(X$coor.score.bounded), ]
+    out <- data.frame(prob = probs[x], sing.event = X$sing.event, imputation = X$imputation, coor_scores = X$coor.score.bounded)
+    out$proportion <- sum(out$coor_scores < 0) / nrow(out)
+
+    return(out)
+})
+
+coor_scores_df <- do.call(rbind, coor_scores_list)
+
+
+coor_scores_df$prob_label <- paste0(
+    coor_scores_df$prob,
+    "/",
+    1 - coor_scores_df$prob,
+    " (",
+    round(coor_scores_df$proportion * 100, 0),
+    "% < 0)"
+)
+
+
+labels_vec <- c(
+  "0.1/0.9", "0.15/0.85", "0.2/0.8", "0.25/0.75",
+  "0.3/0.7", "0.35/0.65", "0.4/0.6", "0.45/0.55",
+  "0.5/0.5"
+)
+
+coor_scores_df$type <- "Time lapse"
+
+gg_time <- ggplot(coor_scores_df, aes(x = factor(prob), y = coor_scores)) +
+      geom_hline(yintercept = 0, col = "red2", lty = 2, lwd = 1) +
+  ggdist::stat_halfeye(
+    fill = "#A0DFB9FF",
+    color = NA,
+    alpha = 0.5,
+    adjust = .5,
+    width = .6,
+    .width = 0,
+    justification = -.2,
+    point_colour = NA
+  ) +
+
+  geom_boxplot(
+    fill = "#A0DFB9FF",
+    color = "black",
+    width = .15,
+    outlier.shape = NA
+  ) +
+
+  geom_half_point(
+    color = "#A0DFB9FF",
+    side = "l",
+    range_scale = .4,
+    alpha = .7,
+    transformation = ggplot2::position_jitter(height = 0)
+  ) +
+
+  scale_x_discrete(labels = labels_vec) +
+
+  labs(
+    x = "Proportion of calls (individual 1 / individual 2)",
+    y = "Coordination score"
+  ) +
+
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  ) +
+    facet_wrap(~ type, nrow = 1)
+
+gg_time
+
+```
+
+
+Number of windows (singing events) analyzed and total number of scores (windows x imputations) per probability
+```{r}
+
+aggregate(cbind(windows = sing.event, n_scores = paste(sing.event, imputation)) ~ prob, coor_scores_df, function(x) length(unique(x)))
+
+```
+
+Average proportion of coordination scores below 0 (i.e. calling closer in time than expected) per probability
+```{r}
+
+aggregate(proportion ~ prob, coor_scores_df, mean)
+
+```
+
+Average proportion of coordination scores below 0 (i.e. calling closer in time than expected) across all probabilities
+```{r}
+
+mean(coor_scores_df$proportion)
+
+```
+
+and its range:
+
+
+```{r}
+
+range(coor_scores_df$proportion)
+
+```
+
+## Overlap counts
+```{r}
+#| eval: false
+
+# probabilities controling the proportion of calls for the 2
+# individuals
+probs <- seq(0.1, 0.5, by = 0.05)
+
+# set global options (this can also be set within the function
+# call)
+warbleR_options(iterations = 1000, pb = FALSE, ovlp.method = "count")
+
+# run over different probability values ('prob' is the probability of
+# assigning a non-overlapping series to individual 'a')
+out <- lapply(probs, function(x) {
+
+    res <- test_coordination_impute(X = dat[, c("sing.event", "indiv", "start", "end")],
+        prob = x, id = "a", imputations = 100, parallel = 20, seed = 123)
+
+    # keep results of each imputation
+    return(attr(res, "imputation.results"))
+})
+
+
+saveRDS(out, "./data/processed/coordination_scores_by_id_proportion_counts.RDS")
+```
+
+```{r}
+coor_scores_list <- readRDS("./data/processed/coordination_scores_by_id_proportion_counts.RDS")
+
+# probabilities controling the proportion of calls for the 2 individuals
+probs <- seq(0.1, 0.5, by = 0.05)
+
+coor_scores_list <- lapply(seq_along(coor_scores_list), function(x) {
+    X <- coor_scores_list[[x]]
+    X <- X[!is.na(X$coor.score.bounded), ]
+    out <- data.frame(prob = probs[x], sing.event = X$sing.event, imputation = X$imputation, coor_scores = X$coor.score.bounded)
+
+    out$proportion <- sum(out$coor_scores > 0) / nrow(out)
+
+    return(out)
+    })
+
+coor_scores_df <- do.call(rbind, coor_scores_list)
+
+
+labels_vec <- c(
+  "0.1/0.9", "0.15/0.85", "0.2/0.8", "0.25/0.75",
+  "0.3/0.7", "0.35/0.65", "0.4/0.6", "0.45/0.55",
+  "0.5/0.5"
+)
+
+coor_scores_df$type <- "Overlap counts"
+
+gg_count <- ggplot(coor_scores_df, aes(x = factor(prob), y = coor_scores)) +
+      geom_hline(yintercept = 0, col = "red2", lty = 2, lwd = 1) +
+  ggdist::stat_halfeye(
+    fill = "#A0DFB9FF",
+    color = NA,
+    alpha = 0.5,
+    adjust = .5,
+    width = .6,
+    .width = 0,
+    justification = -.2,
+    point_colour = NA
+  ) +
+
+  geom_boxplot(
+    fill = "#A0DFB9FF",
+    color = "black",
+    width = .15,
+    outlier.shape = NA
+  ) +
+
+  geom_half_point(
+    color = "#A0DFB9FF",
+    side = "l",
+    range_scale = .4,
+    alpha = .7,
+    transformation = ggplot2::position_jitter(height = 0)
+  ) +
+
+  scale_x_discrete(labels = labels_vec) +
+  labs(
+    x = "Proportion of calls (individual 1 / individual 2)",
+    y = "Coordination score"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  ) +
+    facet_wrap(~ type, nrow = 1)
+
+gg_count
+
+```
+
+Average proportion of coordination scores above 0 (i.e. synchronizing) per probability
+```{r}
+
+aggregate(proportion ~ prob, coor_scores_df, mean)
+
+```
+
+Average proportion of coordination scores above 0 (i.e. synchronizing) across all iterations and probabilities
+```{r}
+
+mean(coor_scores_df$proportion)
+
+```
+
+and its range:
+
+
+```{r}
+
+range(coor_scores_df$proportion)
+
+```
+
+
+```{r}
+
+# combine plots
+gg_both <- cowplot::plot_grid(gg_time + ylim(c(-1, 1)), gg_count + ylim(c(-1, 1)), nrow = 2)
+
+# save for the website home page
+ggsave("./output/coordination_scores.png", gg_both, width = 10, height = 7, dpi = 200, bg = "white")
+
+gg_both
+
+```
+
+
+
+::: {.alert .alert-success}
+
+# Takeaways {.unnumbered .unlisted}
+
+- Waterrail pairs call closer in time and overlap their call series more often than expected by chance, across all assignment scenarios
+- Time lapse: 77-86% of window-level scores were negative (mean across scenarios = 81%), slightly higher with more asymmetric contributions
+- Overlap counts: 84-86% of window-level scores were positive (mean across scenarios = 85%)
+- 46 of 50 two-hour windows were analyzed (4 windows had 3 or fewer call series)
+
+::: 
+
+---
+
+
+# Session information {.unnumbered .unlisted}
+
+```{r session info, echo=F}
+
+sessionInfo()
+
+```

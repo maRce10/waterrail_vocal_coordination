@@ -1,0 +1,26 @@
+---
+title: "Temporal coordination of joint calling in water rails"
+subtitle: "Code and results"
+author: "Karolina Kuczkowska, David M. Logue, Marcelo Araya-Salas, Jan Jedlikowski"
+toc: false
+---
+
+This site contains the analysis of broad-scale vocal coordination between water rail (*Rallus aquaticus*) pair members. Partners often produce overlapping call series, but the timing of their notes is only loosely coordinated, so it is unclear whether joint calling is a coordinated display or the chance overlap of two independent solos.
+
+We tested whether the call series of the two pair members occurred closer in time and overlapped more often than expected by chance. Call series were annotated in the 2 h before and after sunrise for 25 pairs, and each pre- and post-sunrise period was analyzed as a separate window. Because callers could not be identified, overlapping series were assigned to different birds and non-overlapping series were assigned at random, under nine scenarios ranging from highly unequal to equal contributions of the two partners. Each assignment was compared with 1000 randomizations of the call sequence that keep each bird's calling rate.
+
+Across all scenarios, partners called closer in time than expected by chance in 77–86% of the window-level scores, and overlapped more than expected in 84–86% of them.
+
+## Contents
+
+- **[Coordination analysis](scripts/coordination_analysis.qmd)**: assignment of call series to the two partners, randomization tests and coordination scores
+
+## Main results
+
+::: {.figure-gallery}
+![Coordination scores under different assumptions about the relative contributions of the two partners (x-axis: probability of assigning a non-overlapping call series to individual 1 / individual 2). Top: time to the partner's nearest call series, where negative values mean the partners called closer in time than expected by chance. Bottom: number of overlapping call series, where positive values mean more overlap than expected. Each distribution has 4,600 scores (46 windows × 100 assignment replicates); the dashed line marks the null expectation.](output/coordination_scores.png)
+:::
+
+## Reproducibility
+
+The code is available in the [GitHub repository](https://github.com/maRce10/waterrail_vocal_coordination). The raw annotations are not hosted there, so the report is published with its results already computed.

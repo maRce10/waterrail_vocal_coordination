@@ -1,0 +1,34 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - index.qmd
+    - scripts/coordination_analysis.qmd
+
+execute:
+  freeze: auto
+
+website:
+  title: "Water rail vocal coordination"
+  site-url: https://marce10.github.io/waterrail_vocal_coordination/
+  repo-url: https://github.com/maRce10/waterrail_vocal_coordination
+  page-navigation: true
+  navbar:
+    background: "#ffffff"
+    foreground: "#408AB4"
+    left:
+      - href: index.qmd
+        text: Home
+      - href: scripts/coordination_analysis.qmd
+        text: Coordination analysis
+    right:
+      - icon: github
+        href: https://github.com/maRce10/waterrail_vocal_coordination
+        aria-label: GitHub repository
+
+format:
+  html:
+    theme: cosmo
+    lang: en
+    css: styles.css
+    include-after-body: _figure-download.html

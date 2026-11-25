@@ -1,0 +1,27 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.quarto/
+**/*.quarto_ipynb
+.vscode/
+Rplots.pdf
+
+# rendered website (built and deployed by .github/workflows/publish.yml)
+/_site/
+
+# rendered reports outside the website folder
+/scripts/*.html
+/scripts/*_files/
+/scripts/rsconnect/
+
+# raw annotations and intermediate results (kept locally only)
+/data/
+
+# unpublished manuscript
+/manuscript/
+
+# Dropbox conflict copies
+*onflict*
+
+/.quarto/

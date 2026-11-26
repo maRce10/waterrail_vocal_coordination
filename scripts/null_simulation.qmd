@@ -1,0 +1,423 @@
+---
+title: Validation with simulated calling
+subtitle: Waterrail vocal coordination
+author: <center><font size="4"><a href="https://marce10.github.io/">Marcelo Araya-Salas, PhD</a>
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 4
+toc-location: left
+number-sections: true
+highlight-style: pygments
+format:
+  html:
+    df-print: kable
+    code-fold: true
+    code-tools: true
+    css: qmd.css
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r set root directory, echo = FALSE}
+
+# set working directory
+knitr::opts_knit$set(root.dir =  "..")
+
+```
+
+```{r setup style, echo = FALSE, message = FALSE, warning=FALSE}
+
+# options to customize chunk outputs
+knitr::opts_chunk$set(
+  message = FALSE
+ )
+
+```
+
+
+<!-- skyblue box -->
+
+::: {.alert .alert-info}
+
+# Purpose {.unnumbered .unlisted}
+
+- Check whether the assignment and randomization procedure used in the coordination analysis produces coordination when there is none (false positives)
+- Check that it detects coordination when it exists (positive control)
+
+:::
+
+# Rationale {.unnumbered .unlisted}
+
+In the real data callers are unknown. Overlapping series are assigned to different birds and the remaining series are assigned at random (`test_coordination_impute()`). Two features of this procedure could bias coordination scores even if the birds called independently:
+
+1. Overlapping series are always assigned to different birds, so every imputed data set keeps all the observed overlaps
+2. Non-overlapping series are assigned at random, which mixes the calling rhythms of the two birds before the randomization step
+
+Here we simulate pairs of birds, label the series exactly as in the real data and run the same analysis. Each simulated pair is based on one real window: it has the same number of series, the same series durations and the same time span.
+
+Three scenarios are simulated:
+
+* **Independent (uniform)**: each bird calls at random times within the window, independently of its partner
+* **Independent (shared activity)**: each bird calls independently, but both follow the window's real activity profile (start times are sampled from the real start times of the window and jittered with a normal distribution, SD = 5 min). This mimics two birds that respond to the same external cue (e.g. sunrise) without responding to each other
+* **Coordinated (positive control)**: bird 1 calls at random times. Each series of bird 2 has a 50% probability of being a response, starting between 2 s before and 5 s after the start of a randomly chosen series of bird 1; otherwise it is placed at random
+
+The true proportion of series produced by each bird is set to 50/50 or 30/70. The labelled data are analysed assuming three proportions (`prob` = 0.1, 0.3 and 0.5).
+
+Under no coordination, about 50% of the scores should fall on each side of 0 and about 5% of the tests should be significant (p < 0.05).
+
+# Load packages {.unnumbered .unlisted}
+
+```{r load packages}
+
+# install/ load packages
+sketchy::load_packages(
+  packages = c("warbleR", "readxl", "ggplot2")
+)
+
+source("./scripts/test_coordination_impute.R")
+source("~/Dropbox/R_package_testing/warbleR/R/internal_functions.R")
+
+```
+
+# Read and format data
+
+Same as in the coordination analysis.
+
+```{r}
+
+dat <- readxl::read_excel("./data/raw/Water rail database v4.xlsx")
+dat <- as.data.frame(dat)
+dat$sing.event <- paste(dat$No., dat$`Before dawn (0), after dawn (1)`, sep = "-")
+dat$start <- as.numeric(dat$`Call series begin time (s)`)
+dat$end <- as.numeric(dat$`Call series end time (s)`)
+
+# windows used as templates (at least 4 series, so each bird can have 2)
+n_series <- table(dat$sing.event)
+windows <- names(n_series)[n_series >= 4]
+
+length(windows)
+
+```
+
+# Simulation settings
+
+```{r}
+
+# number of simulated pairs per real window
+n_rep <- 20
+
+# true proportion of series produced by bird "a"
+true_props <- c(0.5, 0.3)
+
+# assumed proportions used in the analysis ('prob')
+probs <- c(0.1, 0.3, 0.5)
+
+scenarios <- c("null_uniform", "null_shared", "coordinated")
+
+# test settings (reduced from the real analysis: 100 imputations x 1000 randomizations)
+imputations <- 20
+iterations <- 200
+parallel <- 20
+
+# SD (s) of the jitter for the shared activity scenario
+jitter_sd <- 300
+
+# positive control: probability that a series of bird 2 is a response and its lag (s)
+p_resp <- 0.5
+resp_lag <- c(-2, 5)
+
+out_dir <- "./data/processed/null_simulation"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+```
+
+# Simulation functions
+
+```{r}
+
+# simulate the series of one bird without self-overlap
+# starts_pool: if supplied, start times are sampled from it and jittered
+sim_bird <- function(n, durs, from, to, starts_pool = NULL, jitter = jitter_sd, max_tries = 1000) {
+    for (k in seq_len(max_tries)) {
+        d <- durs[sample.int(length(durs), n, replace = TRUE)]
+        if (is.null(starts_pool)) {
+            s <- stats::runif(n, from, to - d)
+        } else {
+            s <- starts_pool[sample.int(length(starts_pool), n, replace = TRUE)] + stats::rnorm(n, 0, jitter)
+            s <- pmin(pmax(s, from), to - d)
+        }
+        o <- order(s)
+        s <- s[o]
+        d <- d[o]
+        if (all(s[-1] >= (s + d)[-n])) return(data.frame(start = s, end = s + d))
+    }
+    NULL
+}
+
+# simulate bird 2 responding to bird 1 (positive control)
+sim_responder <- function(n, b1, durs, from, to, max_tries = 1000) {
+    for (k in seq_len(max_tries)) {
+        d <- durs[sample.int(length(durs), n, replace = TRUE)]
+        s <- stats::runif(n, from, to - d)
+        resp <- stats::runif(n) < p_resp
+        s[resp] <- b1$start[sample.int(nrow(b1), sum(resp), replace = TRUE)] + stats::runif(sum(resp), resp_lag[1], resp_lag[2])
+        o <- order(s)
+        s <- s[o]
+        d <- d[o]
+        if (all(s[-1] >= (s + d)[-n])) return(data.frame(start = s, end = s + d))
+    }
+    NULL
+}
+
+# simulate a pair using a real window as template
+simulate_pair <- function(W, scenario, true_prop) {
+    n <- nrow(W)
+    n1 <- max(2, round(n * true_prop))
+    n2 <- max(2, n - n1)
+    from <- min(W$start)
+    to <- max(max(W$end), from + 60)
+    durs <- W$end - W$start
+    pool <- if (scenario == "null_shared") W$start else NULL
+
+    b1 <- sim_bird(n1, durs, from, to, starts_pool = pool)
+    if (is.null(b1)) return(NULL)
+
+    b2 <- if (scenario == "coordinated") {
+        sim_responder(n2, b1, durs, from, to)
+    } else {
+        sim_bird(n2, durs, from, to, starts_pool = pool)
+    }
+    if (is.null(b2)) return(NULL)
+
+    b1$true.indiv <- "a"
+    b2$true.indiv <- "b"
+    Y <- rbind(b1, b2)
+    Y[order(Y$start), ]
+}
+
+# hide caller IDs as in the real data: overlapping series are labelled
+# alternately "a" and "b" in order of start time, the rest are left as NA
+label_like_real <- function(Y) {
+    ov <- outer(Y$start, Y$end, "<") & outer(Y$end, Y$start, ">")
+    diag(ov) <- FALSE
+    is_ov <- which(rowSums(ov) > 0)
+    Y$indiv <- NA_character_
+    Y$indiv[is_ov] <- rep(c("a", "b"), length.out = length(is_ov))
+    Y
+}
+
+```
+
+# Simulate data
+
+One data set per scenario and true proportion, each with `n_rep` simulated pairs per real window. The same data sets are used for all assumed proportions and both coordination metrics.
+
+```{r}
+#| eval: false
+
+grid_sim <- expand.grid(scenario = scenarios, true_prop = true_props, stringsAsFactors = FALSE)
+
+for (i in seq_len(nrow(grid_sim))) {
+    set.seed(100 + i)
+    sims <- list()
+    for (w in windows) {
+        W <- dat[dat$sing.event == w, ]
+        for (r in seq_len(n_rep)) {
+            Y <- simulate_pair(W, grid_sim$scenario[i], grid_sim$true_prop[i])
+            if (is.null(Y)) next
+            Y <- label_like_real(Y)
+            Y$sing.event <- paste0(w, "_r", r)
+            Y$window <- w
+            Y$rep <- r
+            sims[[length(sims) + 1]] <- Y
+        }
+    }
+    sims <- do.call(rbind, sims)
+    saveRDS(sims, file.path(out_dir, paste0("sim_", grid_sim$scenario[i], "_", grid_sim$true_prop[i], ".RDS")))
+}
+
+```
+
+# Run coordination tests
+
+Each simulated data set is analysed with the 3 assumed proportions, for both metrics. Results are saved per run, so the loop can be resumed if interrupted. As in the real analysis the p-value for time lapse tests whether birds call closer in time than expected (`less.than.chance = TRUE`). For overlap counts it tests whether birds overlap more than expected (`less.than.chance = FALSE`).
+
+```{r}
+#| eval: false
+
+warbleR_options(pb = FALSE)
+
+grid_run <- expand.grid(
+    scenario = scenarios,
+    true_prop = true_props,
+    method = c("time.closest", "count"),
+    prob = probs,
+    stringsAsFactors = FALSE
+)
+
+for (i in seq_len(nrow(grid_run))) {
+    g <- grid_run[i, ]
+    out_file <- file.path(out_dir, paste0("res_", g$scenario, "_", g$true_prop, "_", g$method, "_", g$prob, ".RDS"))
+    if (file.exists(out_file)) next
+
+    sims <- readRDS(file.path(out_dir, paste0("sim_", g$scenario, "_", g$true_prop, ".RDS")))
+
+    X <- sims[, c("sing.event", "indiv", "start", "end")]
+    res <- suppressWarnings(test_coordination_impute(
+        X = X,
+        prob = g$prob,
+        id = "a",
+        imputations = imputations,
+        iterations = iterations,
+        ovlp.method = g$method,
+        less.than.chance = g$method == "time.closest",
+        parallel = parallel,
+        seed = 123
+    ))
+
+    res <- attr(res, "imputation.results")
+    res <- cbind(g[rep(1, nrow(res)), ], res, row.names = NULL)
+    saveRDS(res, out_file)
+}
+
+```
+
+# Results
+
+```{r}
+
+res <- do.call(rbind, lapply(list.files(out_dir, pattern = "^res_", full.names = TRUE), readRDS))
+res <- res[!is.na(res$coor.score.bounded), ]
+
+res$rep <- as.numeric(sub(".*_r", "", res$sing.event))
+
+# score in the direction of coordination (time lapse < 0, counts > 0)
+res$coordinated <- ifelse(res$method == "time.closest", res$coor.score.bounded < 0, res$coor.score.bounded > 0)
+
+res$metric <- ifelse(res$method == "time.closest", "Time lapse", "Overlap counts")
+res$metric <- factor(res$metric, levels = c("Time lapse", "Overlap counts"))
+res$scenario <- factor(res$scenario, levels = scenarios, labels = c("Independent (uniform)", "Independent (shared activity)", "Coordinated"))
+res$prob <- factor(res$prob, levels = probs)
+res$true_prop <- factor(paste0(res$true_prop, "/", 1 - as.numeric(res$true_prop)))
+
+```
+
+## Real data reference
+
+Proportion of scores in the direction of coordination in the real data for the same assumed proportions.
+
+```{r}
+
+real <- lapply(c(time.closest = "time_lapse", count = "counts"), function(f) {
+    l <- readRDS(paste0("./data/processed/coordination_scores_by_id_proportion_", f, ".RDS"))
+    all_probs <- seq(0.1, 0.5, by = 0.05)
+    do.call(rbind, lapply(seq_along(l), function(i) data.frame(prob = all_probs[i], score = l[[i]]$coor.score.bounded)))
+})
+
+real <- do.call(rbind, lapply(names(real), function(m) {
+    X <- real[[m]][!is.na(real[[m]]$score), ]
+    X$coordinated <- if (m == "time.closest") X$score < 0 else X$score > 0
+    X <- aggregate(coordinated ~ prob, X, mean)
+    X$metric <- if (m == "time.closest") "Time lapse" else "Overlap counts"
+    X
+}))
+
+real <- real[round(real$prob, 2) %in% probs, ]
+real$metric <- factor(real$metric, levels = c("Time lapse", "Overlap counts"))
+names(real)[2] <- "real_proportion"
+real
+
+```
+
+## Proportion of scores in the direction of coordination
+
+Each point is one replicate (all windows and imputations of a simulated set). The dashed line marks the 50% expected without coordination and the red line the mean value in the real data across the assumed proportions.
+
+```{r, fig.width = 10, fig.height = 7}
+
+prop_rep <- aggregate(coordinated ~ scenario + true_prop + metric + prob + rep, res, mean)
+
+real_mean <- aggregate(real_proportion ~ metric, real, mean)
+
+ggplot(prop_rep, aes(x = prob, y = coordinated, fill = true_prop)) +
+    geom_hline(yintercept = 0.5, lty = 2) +
+    geom_hline(data = real_mean, aes(yintercept = real_proportion), col = "red2", lwd = 0.8) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.8), width = 0.6) +
+    geom_point(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.8), size = 0.8, alpha = 0.5) +
+    scale_fill_manual(values = c("#A0DFB9FF", "#3E4A894D")) +
+    facet_grid(metric ~ scenario) +
+    ylim(c(0, 1)) +
+    labs(x = "Assumed proportion of calls of individual 1 (prob)", y = "Proportion of scores\nin the direction of coordination", fill = "True proportion\n(bird 1 / bird 2)") +
+    theme_classic() +
+    theme(legend.position = "bottom")
+
+```
+
+## Summary table
+
+`coordinated`: proportion of scores in the direction of coordination. `significant`: proportion of tests with p < 0.05 (the false positive rate in the independent scenarios and the power in the coordinated one). `median_score`: median bounded coordination score.
+
+```{r}
+
+summ <- aggregate(cbind(coordinated, significant = p.value < 0.05, median_score = coor.score.bounded) ~ metric + scenario + true_prop + prob, res, function(x) c(mean = mean(x), median = median(x)))
+
+summ <- data.frame(
+    summ[, c("metric", "scenario", "true_prop", "prob")],
+    coordinated = round(summ$coordinated[, "mean"], 3),
+    significant = round(summ$significant[, "mean"], 3),
+    median_score = round(summ$median_score[, "median"], 3)
+)
+
+summ[order(summ$metric, summ$scenario, summ$true_prop, summ$prob), ]
+
+```
+
+## Real data compared with the independent scenarios
+
+Proportion of simulated replicates with a proportion of scores in the direction of coordination at least as high as in the real data (pooling the assumed proportions 0.1, 0.3 and 0.5). Values close to 0 indicate that the real result is unlikely under independent calling.
+
+```{r}
+
+null_rep <- prop_rep[prop_rep$scenario != "Coordinated", ]
+null_rep <- merge(null_rep, real_mean, by = "metric")
+
+aggregate(cbind(as_extreme = coordinated >= real_proportion) ~ metric + scenario, null_rep, mean)
+
+```
+
+# Takeaways {.unnumbered .unlisted}
+
+- **Overlap counts are robust**: independent pairs rarely overlapped, so only 2–11% of their scores were positive and 1–8% of the tests were significant, regardless of the assumed proportion. In the real data 84–86% of the scores were positive, which no independent replicate reached. The positive control gave 79–82% positive scores, so the method detects coordination when it exists
+- **Time lapse is biased towards coordination by the assignment and by shared activity**:
+    - With uniform independent calling, 55% of the scores were negative and 8% of the tests were significant when assuming equal contributions (0.5/0.5), slightly above the expected 50% and 5%
+    - Assuming a very unequal contribution inflates negative scores (68% negative and 13% significant at 0.1/0.9)
+    - Two independent birds that follow the same activity profile produce more negative scores (70–76% negative and 14–21% significant), probably because the randomization does not keep the temporal clustering of calls within the window
+- **The real time lapse result is still stronger than expected under independence**: the real data had 77–86% negative scores (81% on average), similar to the positive control (83–91%). Only 1.7% of the replicates with independent birds following a shared activity profile, and none with uniform calling, reached the real value. However, the baseline for independent calling is 55–76% rather than 50%, so the time lapse result should be interpreted against this baseline and is weaker evidence than the overlap counts
+
+<!-- light brown box -->
+::: {.alert .alert-warning}
+
+# Next steps {.unnumbered .unlisted}
+
+- Add the simulation to the Methods and Results (or as supplementary material)
+
+:::
+
+&nbsp;
+
+<!-- '---' adds a gray vertical line -->
+
+---
+
+&nbsp;
+
+ <!-- add packages used, system details and versions  -->
+
+<font size="4">Session information</font>
+
+```{r session info, echo=F}
+
+sessioninfo::session_info()
+
+```

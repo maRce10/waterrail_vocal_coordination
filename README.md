@@ -16,6 +16,7 @@ We tested whether the call series of water rail pair members occur closer in tim
 |:-----|:-----|
 | `index.qmd`, `_quarto.yml`, `styles.css`, `_figure-download.html` | Website pages and configuration |
 | `scripts/coordination_analysis.qmd` | Assignment of call series, randomization tests and coordination scores |
+| `scripts/null_simulation.qmd` | Validation of the procedure with simulated pairs |
 | `scripts/test_coordination_impute.R` | Modified version of `warbleR::test_coordination()` that handles unknown caller identity |
 | `output/` | Figures |
 | `_freeze/` | Stored results of the report, used to build the website |

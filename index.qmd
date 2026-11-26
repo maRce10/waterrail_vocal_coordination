@@ -14,6 +14,7 @@ Across all scenarios, partners called closer in time than expected by chance in 
 ## Contents
 
 - **[Coordination analysis](scripts/coordination_analysis.qmd)**: assignment of call series to the two partners, randomization tests and coordination scores
+- **[Validation with simulated calling](scripts/null_simulation.qmd)**: the same procedure applied to simulated pairs that call independently or in coordination, to check for false positives
 
 ## Main results
 

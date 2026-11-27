@@ -241,7 +241,7 @@ for (i in seq_len(nrow(grid_sim))) {
 
 # Run coordination tests
 
-Each simulated data set is analysed with the 3 assumed proportions, for both metrics. Results are saved per run, so the loop can be resumed if interrupted. As in the real analysis the p-value for time lapse tests whether birds call closer in time than expected (`less.than.chance = TRUE`). For overlap counts it tests whether birds overlap more than expected (`less.than.chance = FALSE`).
+Each simulated data set is analysed with the 3 assumed proportions, for both metrics. Results are saved per run, so the loop can be resumed if interrupted. As in the real analysis the p-value for temporal proximity tests whether birds call closer in time than expected (`less.than.chance = TRUE`). For overlap counts it tests whether birds overlap more than expected (`less.than.chance = FALSE`).
 
 ```{r}
 #| eval: false
@@ -292,11 +292,11 @@ res <- res[!is.na(res$coor.score.bounded), ]
 
 res$rep <- as.numeric(sub(".*_r", "", res$sing.event))
 
-# score in the direction of coordination (time lapse < 0, counts > 0)
+# score in the direction of coordination (temporal proximity < 0, counts > 0)
 res$coordinated <- ifelse(res$method == "time.closest", res$coor.score.bounded < 0, res$coor.score.bounded > 0)
 
-res$metric <- ifelse(res$method == "time.closest", "Time lapse", "Overlap counts")
-res$metric <- factor(res$metric, levels = c("Time lapse", "Overlap counts"))
+res$metric <- ifelse(res$method == "time.closest", "Temporal proximity", "Overlap counts")
+res$metric <- factor(res$metric, levels = c("Temporal proximity", "Overlap counts"))
 res$scenario <- factor(res$scenario, levels = scenarios, labels = c("Independent (uniform)", "Independent (shared activity)", "Coordinated"))
 res$prob <- factor(res$prob, levels = probs)
 res$true_prop <- factor(paste0(res$true_prop, "/", 1 - as.numeric(res$true_prop)))
@@ -319,12 +319,12 @@ real <- do.call(rbind, lapply(names(real), function(m) {
     X <- real[[m]][!is.na(real[[m]]$score), ]
     X$coordinated <- if (m == "time.closest") X$score < 0 else X$score > 0
     X <- aggregate(coordinated ~ prob, X, mean)
-    X$metric <- if (m == "time.closest") "Time lapse" else "Overlap counts"
+    X$metric <- if (m == "time.closest") "Temporal proximity" else "Overlap counts"
     X
 }))
 
 real <- real[round(real$prob, 2) %in% probs, ]
-real$metric <- factor(real$metric, levels = c("Time lapse", "Overlap counts"))
+real$metric <- factor(real$metric, levels = c("Temporal proximity", "Overlap counts"))
 names(real)[2] <- "real_proportion"
 real
 
@@ -340,7 +340,7 @@ prop_rep <- aggregate(coordinated ~ scenario + true_prop + metric + prob + rep, 
 
 real_mean <- aggregate(real_proportion ~ metric, real, mean)
 
-ggplot(prop_rep, aes(x = prob, y = coordinated, fill = true_prop)) +
+gg_sim <- ggplot(prop_rep, aes(x = prob, y = coordinated, fill = true_prop)) +
     geom_hline(yintercept = 0.5, lty = 2) +
     geom_hline(data = real_mean, aes(yintercept = real_proportion), col = "red2", lwd = 0.8) +
     geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.8), width = 0.6) +
@@ -348,9 +348,13 @@ ggplot(prop_rep, aes(x = prob, y = coordinated, fill = true_prop)) +
     scale_fill_manual(values = c("#A0DFB9FF", "#3E4A894D")) +
     facet_grid(metric ~ scenario) +
     ylim(c(0, 1)) +
-    labs(x = "Assumed proportion of calls of individual 1 (prob)", y = "Proportion of scores\nin the direction of coordination", fill = "True proportion\n(bird 1 / bird 2)") +
+    labs(x = "Probability of assigning a non-overlapping series to individual 1", y = "Proportion of scores\nin the direction of coordination", fill = "True proportion\n(bird 1 / bird 2)") +
     theme_classic() +
     theme(legend.position = "bottom")
+
+ggsave("./output/null_simulation.png", gg_sim, width = 10, height = 7, dpi = 300, bg = "white")
+
+gg_sim
 
 ```
 
@@ -389,11 +393,11 @@ aggregate(cbind(as_extreme = coordinated >= real_proportion) ~ metric + scenario
 # Takeaways {.unnumbered .unlisted}
 
 - **Overlap counts are robust**: independent pairs rarely overlapped, so only 2–11% of their scores were positive and 1–8% of the tests were significant, regardless of the assumed proportion. In the real data 84–86% of the scores were positive, which no independent replicate reached. The positive control gave 79–82% positive scores, so the method detects coordination when it exists
-- **Time lapse is biased towards coordination by the assignment and by shared activity**:
+- **Temporal proximity is biased towards coordination by the assignment and by shared activity**:
     - With uniform independent calling, 55% of the scores were negative and 8% of the tests were significant when assuming equal contributions (0.5/0.5), slightly above the expected 50% and 5%
     - Assuming a very unequal contribution inflates negative scores (68% negative and 13% significant at 0.1/0.9)
     - Two independent birds that follow the same activity profile produce more negative scores (70–76% negative and 14–21% significant), probably because the randomization does not keep the temporal clustering of calls within the window
-- **The real time lapse result is still stronger than expected under independence**: the real data had 77–86% negative scores (81% on average), similar to the positive control (83–91%). Only 1.7% of the replicates with independent birds following a shared activity profile, and none with uniform calling, reached the real value. However, the baseline for independent calling is 55–76% rather than 50%, so the time lapse result should be interpreted against this baseline and is weaker evidence than the overlap counts
+- **The real temporal proximity result is still stronger than expected under independence**: the real data had 77–86% negative scores (81% on average), similar to the positive control (83–91%). Only 1.7% of the replicates with independent birds following a shared activity profile, and none with uniform calling, reached the real value. However, the baseline for independent calling is 55–76% rather than 50%, so the temporal proximity result should be interpreted against this baseline and is weaker evidence than the overlap counts
 
 <!-- light brown box -->
 ::: {.alert .alert-warning}

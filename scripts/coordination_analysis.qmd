@@ -207,12 +207,12 @@ $$
 {\text{obs} + \text{mean.random}}
 $$
 
-For overlap counts, positive values indicate a tendency to overlap while negative values indicate a tendency to alternate. For time lapse (mean time to the closest call from the other individual), negative values indicate that individuals call closer in time than expected by chance. NA values will be returned when events cannot be randomized (e.g. too few signals).
+For overlap counts, positive values indicate a tendency to overlap while negative values indicate a tendency to alternate. For temporal proximity (mean time to the closest call from the other individual), negative values indicate that individuals call closer in time than expected by chance. NA values will be returned when events cannot be randomized (e.g. too few signals).
 
 Each singing event is one 2-h window (before or after dawn) of a pair. For each assignment probability, `test_coordination_impute()` creates 100 imputed data sets per window and each one is compared against 1000 randomizations. The coordination scores of every imputation are kept (`attr(x, "imputation.results")`) to show the spread across plausible ID assignments.
 
 
-## Time lapse among vocal units
+## Temporal proximity among vocal units
 
 
 ```{r}
@@ -276,7 +276,7 @@ labels_vec <- c(
   "0.5/0.5"
 )
 
-coor_scores_df$type <- "Time lapse"
+coor_scores_df$type <- "Temporal proximity"
 
 gg_time <- ggplot(coor_scores_df, aes(x = factor(prob), y = coor_scores)) +
       geom_hline(yintercept = 0, col = "red2", lty = 2, lwd = 1) +
@@ -298,18 +298,10 @@ gg_time <- ggplot(coor_scores_df, aes(x = factor(prob), y = coor_scores)) +
     outlier.shape = NA
   ) +
 
-  geom_half_point(
-    color = "#A0DFB9FF",
-    side = "l",
-    range_scale = .4,
-    alpha = .7,
-    transformation = ggplot2::position_jitter(height = 0)
-  ) +
-
   scale_x_discrete(labels = labels_vec) +
 
   labs(
-    x = "Proportion of calls (individual 1 / individual 2)",
+    x = "Probability of assigning a non-overlapping series (individual 1 / individual 2)",
     y = "Coordination score"
   ) +
 
@@ -428,17 +420,9 @@ gg_count <- ggplot(coor_scores_df, aes(x = factor(prob), y = coor_scores)) +
     outlier.shape = NA
   ) +
 
-  geom_half_point(
-    color = "#A0DFB9FF",
-    side = "l",
-    range_scale = .4,
-    alpha = .7,
-    transformation = ggplot2::position_jitter(height = 0)
-  ) +
-
   scale_x_discrete(labels = labels_vec) +
   labs(
-    x = "Proportion of calls (individual 1 / individual 2)",
+    x = "Probability of assigning a non-overlapping series (individual 1 / individual 2)",
     y = "Coordination score"
   ) +
   theme_classic() +
@@ -494,7 +478,7 @@ gg_both
 # Takeaways {.unnumbered .unlisted}
 
 - Waterrail pairs call closer in time and overlap their call series more often than expected by chance, across all assignment scenarios
-- Time lapse: 77-86% of window-level scores were negative (mean across scenarios = 81%), slightly higher with more asymmetric contributions
+- Temporal proximity: 77-86% of window-level scores were negative (mean across scenarios = 81%), slightly higher with more asymmetric contributions
 - Overlap counts: 84-86% of window-level scores were positive (mean across scenarios = 85%)
 - 46 of 50 two-hour windows were analyzed (4 windows had 3 or fewer call series)
 
